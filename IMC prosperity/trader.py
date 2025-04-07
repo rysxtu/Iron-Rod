@@ -161,7 +161,6 @@ class MarketMakingStrategy(Strategy):
         super().__init__(symbol, limit)
 
         # the length of data series they are looking at?
-        self.symbol = symbol
         self.window = deque()
         self.window_size = 10
 
@@ -169,7 +168,7 @@ class MarketMakingStrategy(Strategy):
     def get_true_value(state: TradingState) -> int:
         raise NotImplementedError()
 
-    def act(self, state: TradingState) -> None:
+    def act(self, state: TradingState, trend) -> None:
         true_value = self.get_true_value(state)
 
         # get order book for the given product
@@ -218,7 +217,6 @@ class MarketMakingStrategy(Strategy):
             popular_buy_price = max(buy_orders, key=lambda tup: tup[1])[0]
             price = min(max_buy_price, popular_buy_price + 1)
             self.buy(price, to_buy)
-
 
         # does the exact same for buy orders, in the case for selling
         for price, volume in buy_orders:
@@ -275,24 +273,33 @@ class SquidStrategyTrend(MarketMakingStrategy):
 
     price_series = [1800]
     
-    def __init__(self):
-        self.period = 10
-        self.trend_threshold = 4
+    def __init__(self, period, trend_threshold):
+        self.period = period
+        self.trend_threshold = trend_threshold
     
     def update(self,price):
         self.price_series.append(price)
 
     def get_true_value(self, state: TradingState) -> int:
-        transactions = state.market_trades[self.symbol]
-        average_price = sum([transaction.price*transaction.quantity for transaction in transactions])/sum([transaction.quantity for transaction in transactions])
-        self.update(average_price)
+        
+        order_depth = state.order_depths[self.symbol] # this is just getting the current order book for kelp
+        # len(order_depth) would be the number of trades being put on
+        buy_orders = sorted(order_depth.buy_orders.items(), reverse=True) # sorted to get most expensive buy price for asking
+        sell_orders = sorted(order_depth.sell_orders.items())             # sorted to get the least expensive sell price for bidding
+
+        popular_buy_price = max(buy_orders, key=lambda tup: tup[1])[0] # higher buy price for asking
+        popular_sell_price = min(sell_orders, key=lambda tup: tup[1])[0] # least sell price for buying
+
+        action = "nothing"
+        return round((popular_buy_price + popular_sell_price) / 2)
+    
         if len(self.price_series) >= self.period:
             changes = [1 if (self.price_series[i]-self.price_series[i-1] >= 0) else -1 for i in range((-self.period),0)]
             if (abs(sum(changes)) >= self.trend_threshold):
                 if (self.price_series[-self.period] <= self.price_series[-1] and sum(changes) > 0):
-                    return sum(self.price_series[-self.period:])/self.period*0.97
+                    action = "buy"
                 elif (self.price_series[-self.period] > self.price_series[-1] and sum(changes) < 0):
-                    return sum(self.price_series[-self.period:])/self.period*1.03
+                    action = "sell"
 
 
 class Trader:

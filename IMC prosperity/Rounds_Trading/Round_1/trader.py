@@ -269,6 +269,62 @@ class SquidStrategy(MarketMakingStrategy):
         return 2000
     # Sum of prices / Number of Observations
 
+class SquidStrategy2(MarketMakingStrategy):
+    def get_true_value(self, state: TradingState) -> int:
+        # swing a bit, but some say there is a pattern to be discovered in its prize progression
+        order_depth = state.order_depths[self.symbol]
+        best_bid = max(order_depth.buy_orders.keys(), default=1970)
+        best_ask = min(order_depth.sell_orders.keys(), default=1970)
+        return (best_bid + best_ask) // 2
+class SquidStrategy3(MarketMakingStrategy):
+    def __init__(self, symbol: Symbol, limit: int):
+        super().__init__(symbol, limit)
+        self.price_history = deque(maxlen=100)  # Track last 100 prices
+        self.mean_price = None
+        self.std_dev = None
+
+    def get_true_value(self, state: TradingState) -> int:
+        # Update price history with current mid price
+        order_depth = state.order_depths[self.symbol]
+        best_bid = max(order_depth.buy_orders.keys()) if order_depth.buy_orders else None
+        best_ask = min(order_depth.sell_orders.keys()) if order_depth.sell_orders else None
+        
+        if best_bid and best_ask:
+            current_price = (best_bid + best_ask) / 2
+            self.price_history.append(current_price)
+            
+            # Calculate mean and standard deviation when we have enough data
+            if len(self.price_history) >= 20:
+                prices = list(self.price_history)
+                self.mean_price = sum(prices) / len(prices)
+                self.std_dev = (sum((x - self.mean_price) ** 2 for x in prices) / len(prices)) ** 0.5
+                
+                # Mean-reverting logic
+                if current_price > self.mean_price + self.std_dev:
+                    # Price is high - adjust true value downward
+                    return int(self.mean_price) + int(self.std_dev/2)
+                elif current_price < self.mean_price - self.std_dev:
+                    # Price is low - adjust true value upward
+                    return int(self.mean_price) - int(self.std_dev/2)
+        
+        # Default to simple mid price if not enough data
+        return int((best_bid + best_ask) / 2) if best_bid and best_ask else 2000
+def SquidStrategy4(MarketMakingStrategy):
+    def __init__(self, symbol: Symbol, limit: int):
+        super().__init__(symbol, limit)
+        self.price_history = deque(maxlen=10)  # Track last 10 prices
+        self.mean_price = None
+        self.std_dev = None
+
+    def get_true_value(self, state: TradingState) -> int:
+        # swing a bit, but some say there is a pattern to be discovered in its prize progression
+        order_depth = state.order_depths[self.symbol]
+        best_bid = max(order_depth.buy_orders.keys(), default=2000)
+        best_ask = min(order_depth.sell_orders.keys(), default=2000)
+        self.price_history.append(int((best_bid + best_ask) // 2))
+        if len(self.price_history) >= 5:
+            return int(sum(list(self.price_history)) // len(self.price_history))
+        return ((best_bid + best_ask) // 2)
 class SquidStrategyTrend(MarketMakingStrategy):
 
     price_series = [1800]
@@ -313,7 +369,7 @@ class Trader:
         self.strategies = {symbol: clazz(symbol, limits[symbol]) for symbol, clazz in {
             "RAINFOREST_RESIN": ResinStrategy,
             "KELP": KelpStrategy,
-            "SQUID_INK": KelpStrategy, 
+            "SQUID_INK": SquidStrategy4, 
 
         }.items()}
 
@@ -339,4 +395,3 @@ class Trader:
 
         logger.flush(state, orders, conversions, trader_data)
         return orders, conversions, trader_data
-    
